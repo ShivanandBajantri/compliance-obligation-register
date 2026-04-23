@@ -20,3 +20,4 @@ public interface ComplianceObligationRepository
 }
 
 // This repository interface extends JpaRepository, providing CRUD operations for ComplianceObligation entities.
+// It also includes custom query methods to find obligations by status and due date range.
