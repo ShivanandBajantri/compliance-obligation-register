@@ -24,6 +24,10 @@ public class ComplianceObligation {
 
     private LocalDate dueDate;
 
+    private String assignedEmail;
+
+    private boolean alertSent;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -78,6 +82,22 @@ public class ComplianceObligation {
 
     public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public String getAssignedEmail() {
+        return assignedEmail;
+    }
+
+    public void setAssignedEmail(String assignedEmail) {
+        this.assignedEmail = assignedEmail;
+    }
+
+    public boolean isAlertSent() {
+        return alertSent;
+    }
+
+    public void setAlertSent(boolean alertSent) {
+        this.alertSent = alertSent;
     }
 
     public LocalDateTime getCreatedAt() {

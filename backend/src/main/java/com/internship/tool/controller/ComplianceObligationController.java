@@ -17,6 +17,12 @@ public class ComplianceObligationController {
         this.service = service;
     }
 
+    @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ComplianceObligation create(@RequestBody ComplianceObligation obligation) {
+        return service.create(obligation);
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ComplianceObligation update(@PathVariable Long id,
