@@ -30,6 +30,24 @@ public class ComplianceObligationController {
         return service.create(obligation);
     }
 
+    @PostMapping("/create")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ComplianceObligation createAlias(@RequestBody ComplianceObligation obligation) {
+        return service.create(obligation);
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
+    public ComplianceObligation getById(@PathVariable Long id) {
+        return service.getById(id);
+    }
+
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
+    public List<ComplianceObligation> searchByStatus(@RequestParam String status) {
+        return service.getByStatus(status);
+    }
+
     @GetMapping("/all")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public Page<ComplianceObligation> getAll(

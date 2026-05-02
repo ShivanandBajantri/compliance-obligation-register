@@ -71,6 +71,11 @@ public class ComplianceObligationService {
         return repository.findByStatus(status);
     }
 
+    public ComplianceObligation getById(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Obligation not found"));
+    }
+
     public Page<ComplianceObligation> getAll(Pageable pageable) {
         logger.debug("Retrieving obligations page {} size {} sort {}",
                 pageable.getPageNumber(), pageable.getPageSize(), pageable.getSort());
