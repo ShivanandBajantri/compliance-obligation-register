@@ -4,11 +4,13 @@ import com.internship.tool.entity.ComplianceObligation;
 import com.internship.tool.repository.ComplianceObligationRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 public class AlertScheduler {
@@ -28,32 +30,43 @@ public class AlertScheduler {
     // For testing, uncomment the @Scheduled(fixedRate = 60000) and comment the cron one
     // @Scheduled(fixedRate = 60000) // Every minute for testing
     @Scheduled(cron = "0 0 9 * * *")
+    @Transactional
     public void checkObligations() {
         logger.info("Starting daily obligation check");
 
         LocalDate today = LocalDate.now();
         LocalDate dueSoonDate = today.plusDays(7);
 
-        // Fetch all obligations
-        List<ComplianceObligation> obligations = repository.findAll();
+        // Optimized queries to avoid N+1 problem
+        List<ComplianceObligation> overdueObligations = repository.findOverdueObligations(today);
+        List<ComplianceObligation> dueSoonObligations = repository.findDueSoonObligations(dueSoonDate);
 
-        for (ComplianceObligation obligation : obligations) {
-            if (obligation.getAssignedEmail() == null || obligation.getAssignedEmail().isEmpty()) {
-                continue; // Skip if no email assigned
-            }
+        // Process overdue obligations
+        if (!overdueObligations.isEmpty()) {
+            List<Long> overdueIds = overdueObligations.stream()
+                    .map(ComplianceObligation::getId)
+                    .collect(Collectors.toList());
 
-            boolean isOverdue = obligation.getDueDate().isBefore(today) && !"COMPLETED".equals(obligation.getStatus());
-            boolean isDueSoon = obligation.getDueDate().isEqual(dueSoonDate);
+            // Send alerts for overdue obligations
+            overdueObligations.forEach(this::sendOverdueAlert);
 
-            if (isOverdue && !obligation.isAlertSent()) {
-                sendOverdueAlert(obligation);
-                obligation.setAlertSent(true);
-                repository.save(obligation);
-            } else if (isDueSoon && !obligation.isAlertSent()) {
-                sendDueSoonAlert(obligation);
-                obligation.setAlertSent(true);
-                repository.save(obligation);
-            }
+            // Bulk update alert_sent flag
+            repository.markAlertsSent(overdueIds);
+            logger.info("Sent overdue alerts for {} obligations", overdueIds.size());
+        }
+
+        // Process due soon obligations
+        if (!dueSoonObligations.isEmpty()) {
+            List<Long> dueSoonIds = dueSoonObligations.stream()
+                    .map(ComplianceObligation::getId)
+                    .collect(Collectors.toList());
+
+            // Send alerts for due soon obligations
+            dueSoonObligations.forEach(this::sendDueSoonAlert);
+
+            // Bulk update alert_sent flag
+            repository.markAlertsSent(dueSoonIds);
+            logger.info("Sent due soon alerts for {} obligations", dueSoonIds.size());
         }
 
         logger.info("Daily obligation check completed");
@@ -65,20 +78,26 @@ public class AlertScheduler {
     public void sendWeeklySummary() {
         logger.info("Sending weekly summary");
 
-        List<ComplianceObligation> pendingObligations = repository.findByStatus("PENDING");
-        long totalPending = pendingObligations.size();
+        // Use optimized query instead of loading all entities
+        long totalPending = repository.countByStatus("PENDING");
 
-        String subject = "Weekly Compliance Summary";
-        String message = String.format("Total pending obligations: %d\n\n", totalPending);
+        if (totalPending > 0) {
+            String subject = "Weekly Compliance Summary";
+            String message = String.format("Total pending obligations: %d\n\n", totalPending);
 
-        for (ComplianceObligation obligation : pendingObligations) {
-            message += String.format("- %s (Due: %s)\n", obligation.getTitle(), obligation.getDueDate());
+            // Only load pending obligations with EntityGraph for better performance
+            List<ComplianceObligation> pendingObligations = repository.findByStatus("PENDING");
+
+            for (ComplianceObligation obligation : pendingObligations) {
+                message += String.format("- %s (Due: %s)\n", obligation.getTitle(), obligation.getDueDate());
+            }
+
+            // Send to admin email - you can configure this in properties
+            emailService.sendEmail("admin@company.com", subject, message);
+            logger.info("Weekly summary sent with {} pending obligations", totalPending);
+        } else {
+            logger.info("No pending obligations for weekly summary");
         }
-
-        // Send to admin email - you can configure this in properties
-        emailService.sendEmail("admin@company.com", subject, message);
-
-        logger.info("Weekly summary sent");
     }
 
     private void sendOverdueAlert(ComplianceObligation obligation) {

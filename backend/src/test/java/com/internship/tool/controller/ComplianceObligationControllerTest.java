@@ -165,11 +165,13 @@ public class ComplianceObligationControllerTest {
     public void testSearchByStatus_Success() throws Exception {
         service.create(testObligation);
 
+        // /search returns a paginated Page<ComplianceObligationDTO>, not a plain array
         mockMvc.perform(get("/api/obligations/search")
-                        .param("status", "PENDING")
+                        .param("keyword", "Test")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.totalElements").isNumber());
     }
 
     @Test
@@ -178,7 +180,10 @@ public class ComplianceObligationControllerTest {
         mockMvc.perform(get("/api/obligations/stats")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isNumber());
+                // /stats returns a ComplianceStatsDTO object, not a plain number
+                .andExpect(jsonPath("$.totalObligations").isNumber())
+                .andExpect(jsonPath("$.pendingObligations").isNumber())
+                .andExpect(jsonPath("$.completedObligations").isNumber());
     }
 
     // ==================== PUT Tests ====================

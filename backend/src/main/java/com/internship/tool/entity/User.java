@@ -2,9 +2,16 @@ package com.internship.tool.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 @Entity
-@Table(name = "users")
+@Table(
+    name = "users",
+    indexes = {
+        @Index(name = "idx_users_username", columnList = "username")
+    }
+)
 public class User {
 
     @Id
@@ -22,6 +29,20 @@ public class User {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /**
+     * Roles are loaded eagerly via a single JOIN query (no N+1).
+     * FetchType.EAGER on a @ManyToMany uses a JOIN by default in Hibernate,
+     * but we make it explicit with @EntityGraph in the repository to keep
+     * control over the fetch strategy.
+     */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "user_roles",
+        joinColumns        = @JoinColumn(name = "user_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> roles = new HashSet<>();
 
     // Getters and Setters
 
@@ -63,5 +84,13 @@ public class User {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Set<Role> getRoles() {
+        return roles;
+    }
+
+    public void setRoles(Set<Role> roles) {
+        this.roles = roles;
     }
 }

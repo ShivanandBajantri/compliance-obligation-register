@@ -1,53 +1,39 @@
-package com.internship.tool.entity;
+package com.internship.tool.dto;
 
-import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(
-    name = "compliance_obligation",
-    indexes = {
-        @Index(name = "idx_status",              columnList = "status"),
-        @Index(name = "idx_due_date",            columnList = "due_date"),
-        @Index(name = "idx_created_at",          columnList = "created_at"),
-        @Index(name = "idx_status_due_date",     columnList = "status, due_date"),
-        @Index(name = "idx_alert_sent",          columnList = "alert_sent"),
-        @Index(name = "idx_status_alert_sent",   columnList = "status, alert_sent"),
-        @Index(name = "idx_category",            columnList = "category"),
-        @Index(name = "idx_assigned_email",      columnList = "assigned_email")
-    }
-)
-public class ComplianceObligation {
+public class ComplianceObligationDTO {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(nullable = false)
     private String title;
-
-    @Column(length = 2000)
     private String description;
-
     private String category;
-
     private String status;
-
     private LocalDate dueDate;
-
     private String assignedEmail;
-
-    private boolean alertSent;
-
-    @Column(name = "created_at")
     private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // Getters and Setters
+    // Default constructor
+    public ComplianceObligationDTO() {}
 
+    // Constructor for mapping from entity
+    public ComplianceObligationDTO(Long id, String title, String description, String category,
+                                 String status, LocalDate dueDate, String assignedEmail,
+                                 LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this.id = id;
+        this.title = title;
+        this.description = description;
+        this.category = category;
+        this.status = status;
+        this.dueDate = dueDate;
+        this.assignedEmail = assignedEmail;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+    // Getters and Setters
     public Long getId() {
         return id;
     }
@@ -102,14 +88,6 @@ public class ComplianceObligation {
 
     public void setAssignedEmail(String assignedEmail) {
         this.assignedEmail = assignedEmail;
-    }
-
-    public boolean isAlertSent() {
-        return alertSent;
-    }
-
-    public void setAlertSent(boolean alertSent) {
-        this.alertSent = alertSent;
     }
 
     public LocalDateTime getCreatedAt() {
