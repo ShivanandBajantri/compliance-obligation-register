@@ -1,36 +1,52 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+
+  # ── PostgreSQL Database ────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: compliance-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: compliance_db
-      POSTGRES_USER: compliance_user
+      POSTGRES_DB:       compliance_db
+      POSTGRES_USER:     compliance_user
       POSTGRES_PASSWORD: compliance_password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/src/main/resources/db/migration:/docker-entrypoint-initdb.d
+      # NOTE: Flyway (inside the backend) owns all schema migrations.
+      #       Do NOT mount migration scripts here — Postgres init scripts
+      #       run only on first container creation and conflict with Flyway.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compliance_user -d compliance_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - compliance-network
 
-  # Redis Cache
+  # ── Redis Cache ────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: compliance-redis
     restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - compliance-network
 
-  # Spring Boot Backend
+  # ── Spring Boot Backend ────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -42,18 +58,20 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     networks:
       - compliance-network
 
-  # Python Flask AI Service
+  # ── Python Flask AI Service ────────────────────────────────────────────────
   ai-service:
     build:
       context: ./ai-service
@@ -63,11 +81,17 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - FLASK_ENV=production
+      FLASK_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     networks:
       - compliance-network
 
-  # React Frontend
+  # ── React Frontend ─────────────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
@@ -77,7 +101,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - compliance-network
 
