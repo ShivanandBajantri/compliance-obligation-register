@@ -99,18 +99,33 @@ function StatsBar({ stats }) {
 function ObligationList({ obligations, totalElements, page, pageSize, onPageChange }) {
   const totalPages = Math.ceil(totalElements / pageSize);
 
+  const handleExport = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/obligations/export`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'obligations.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('CSV export failed: ' + err.message);
+    }
+  };
+
   return (
     <div className="obligations-section">
       <div className="list-header">
         <h2>Obligations <span className="count">({totalElements})</span></h2>
-        <a
-          href={`${API_BASE}/obligations/export`}
-          className="export-btn"
-          target="_blank"
-          rel="noreferrer"
-        >
+        <button onClick={handleExport} className="export-btn">
           Export CSV
-        </a>
+        </button>
       </div>
 
       {obligations.length === 0 ? (

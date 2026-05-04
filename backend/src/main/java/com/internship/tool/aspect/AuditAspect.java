@@ -30,7 +30,16 @@ public class AuditAspect {
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
 
-    @Around("execution(* com.internship.tool.service.*.*(..))")
+    /**
+     * Audit only ComplianceObligationService write methods.
+     *
+     * Bug fix: the original pointcut matched ALL service classes including
+     * AlertScheduler and EmailService. This caused the aspect to intercept
+     * scheduler methods, attempt to serialize email bodies as "old data",
+     * and write spurious audit log entries. Narrowed to the one service
+     * that owns entity mutations.
+     */
+    @Around("execution(* com.internship.tool.service.ComplianceObligationService.*(..))")
     public Object auditServiceMethods(ProceedingJoinPoint joinPoint) throws Throwable {
         String methodName = joinPoint.getSignature().getName();
         String lowerMethod = methodName.toLowerCase();

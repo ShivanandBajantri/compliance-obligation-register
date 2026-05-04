@@ -1,191 +1,189 @@
 # Compliance Obligation Register
 
-A comprehensive compliance management system built with Spring Boot, React, and AI-powered analytics.
+A compliance management system built with Spring Boot, React, and a Python AI service.
 
 ## Architecture
 
-- **Backend**: Spring Boot with PostgreSQL and Redis
-- **Frontend**: React application served via Nginx
-- **AI Service**: Python Flask service for compliance analytics
-- **Database**: PostgreSQL for data persistence
-- **Cache**: Redis for performance optimization
+| Layer | Technology |
+|-------|-----------|
+| Backend API | Spring Boot 3.2, JPA/Hibernate, Flyway |
+| Database | PostgreSQL 15 (H2 for tests) |
+| Cache | Redis 7 |
+| Frontend | React 18, served via Nginx |
+| AI Service | Python 3.11 / Flask |
+| Auth | JWT (HMAC-SHA256, 24 h expiry) |
+| Containerisation | Docker Compose |
 
-## Quick Start with Docker Compose
+---
+
+## Quick Start (Docker Compose)
 
 ### Prerequisites
+- Docker Desktop with at least 4 GB RAM allocated
+- Ports 80, 8080, 5000, 5432, 6379 free
 
-- Docker and Docker Compose
-- At least 4GB RAM available for containers
-- Ports 80, 8080, 5000, 5432, 6379 available
-
-### 1. Environment Configuration
-
-Copy the example environment file and configure your settings:
-
+### 1 — Configure environment
 ```bash
 cp .env.example .env
+# Edit .env — set JWT_SECRET, email credentials, admin email
 ```
 
-Edit `.env` with your specific configuration (see .env.example for all options).
-
-### 2. Build and Run All Services
-
+### 2 — Build and start
 ```bash
 docker-compose up --build
 ```
 
-This will start:
-- PostgreSQL database on port 5432
-- Redis cache on port 6379
-- Spring Boot backend on port 8080
-- Python AI service on port 5000
-- React frontend on port 80
+### 3 — Access
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost |
+| Backend API | http://localhost:8080 |
+| AI Service | http://localhost:5000/health |
+| Health check | http://localhost:8080/actuator/health |
 
-### 3. Access the Application
+### Default credentials (seeded by V7 migration)
+| Username | Password | Role |
+|----------|----------|------|
+| admin | password | ADMIN |
+| manager | password | MANAGER |
+| viewer | password | VIEWER |
 
-- **Frontend**: http://localhost
-- **Backend API**: http://localhost:8080
-- **AI Service**: http://localhost:5000
+> **Change these passwords before any real deployment.**
 
-## Traditional Development Setup
+---
 
-### 1. Configuration
-1. Copy `backend/src/main/resources/application.properties.template` to `application.properties`
-2. Fill in your actual configuration values:
-   - **Email Settings**: Replace with your Gmail credentials
-     - Generate App Password from [Google Account Settings](https://myaccount.google.com/apppasswords)
-   - **Database Settings**: Configure your database connection
-   - **Security Settings**: Set secure JWT secret and other security configurations
+## API Reference
 
-### 2. Email Configuration
-For Gmail SMTP:
-1. Enable 2-Factor Authentication on your Google account
-2. Generate an App Password
-3. Use your Gmail address as username and the App Password as password
+### Authentication
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/auth/login` | None | Returns JWT |
+| POST | `/api/auth/refresh` | Bearer token | Issues new token |
 
-### 3. Database Setup
-The application uses Flyway for database migrations. Supported databases:
-- H2 (for development/testing)
-- PostgreSQL (for production)
+### Compliance Obligations
+| Method | Path | Role | Description |
+|--------|------|------|-------------|
+| GET | `/api/obligations/all` | Any | Paginated list (full entity) |
+| GET | `/api/obligations/all-dto` | Any | Paginated list (DTO, preferred) |
+| GET | `/api/obligations/{id}` | Any | Single obligation |
+| GET | `/api/obligations/status?status=` | Any | Filter by status |
+| GET | `/api/obligations/search?keyword=` | Any | Full-text search (paginated) |
+| GET | `/api/obligations/stats` | Any | Dashboard aggregation |
+| GET | `/api/obligations/export` | Any | CSV download |
+| POST | `/api/obligations` | ADMIN, MANAGER | Create |
+| PUT | `/api/obligations/{id}` | ADMIN, MANAGER | Update |
+| DELETE | `/api/obligations/{id}` | ADMIN | Delete |
 
-### 4. Running the Application
+### AI Service
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/ai/analyze` | Risk analysis for an obligation |
+| POST | `/ai/predict` | Deadline prediction |
+
+---
+
+## Development Setup (without Docker)
+
 ```bash
-cd backend
-mvn spring-boot:run
+# 1. Copy and configure properties
+cp backend/src/main/resources/application.properties.template \
+   backend/src/main/resources/application.properties
+
+# 2. Run backend (uses H2 in-memory DB by default)
+cd backend && mvn spring-boot:run
+
+# 3. Run frontend dev server
+cd frontend && npm install && npm start
 ```
+
+---
+
+## Running Tests
+
+```bash
+cd backend && mvn clean test
+# 20 tests pass; IntegrationTest is skipped without Docker
+```
+
+---
 
 ## Docker Compose Commands
 
-### Development
-
 ```bash
-# Start all services
+# Start all services (foreground)
 docker-compose up --build
 
 # Start in background
 docker-compose up -d --build
 
 # View logs
-docker-compose logs -f
+docker-compose logs -f backend
 
-# Stop all services
+# Stop everything
 docker-compose down
 
-# Stop and remove volumes (reset database)
+# Full reset (removes volumes / database)
 docker-compose down -v
 ```
 
-### Individual Services
+---
 
-```bash
-# Run only backend
-docker-compose up backend
+## Known Issues (P3 — Minor, non-blocking)
 
-# Run only database
-docker-compose up postgres redis
+These issues are documented and do not affect core functionality for the demo.
 
-# Scale services
-docker-compose up --scale backend=3
-```
+### P3-001 — Self-service registration not implemented
+`POST /api/auth/register` returns **501 Not Implemented**.  
+Users must be created directly in the database or via a future admin UI.  
+**Workaround:** Use the three seeded accounts (admin / manager / viewer).
 
-### Database Access
+### P3-002 — Role assignment API not implemented
+`POST /api/auth/assign-role` returns **501 Not Implemented**.  
+Roles are managed via the `user_roles` table in the database.
 
-```bash
-# Connect to PostgreSQL
-docker-compose exec postgres psql -U compliance_user -d compliance_db
+### P3-003 — JWT stored in localStorage (XSS risk)
+The React frontend stores the JWT in `localStorage`, which is accessible to JavaScript.  
+**Risk:** Low for an internal demo tool; would need `httpOnly` cookie storage for production.
 
-# Access Redis CLI
-docker-compose exec redis redis-cli
-```
+### P3-004 — No HTTPS in Docker Compose
+The Nginx container listens on HTTP port 80 only.  
+**Workaround for production:** Terminate TLS at a load balancer or add a Certbot sidecar.
 
-## Features
+### P3-005 — Scheduler race condition in clustered deployments
+`AlertScheduler.checkObligations()` queries obligations with `alertSent = false`, sends emails, then marks them sent. In a multi-instance deployment, two instances could process the same obligation simultaneously.  
+**Impact:** Duplicate alert emails. Not relevant for single-instance demo.  
+**Fix path:** Add `SELECT ... FOR UPDATE` or a distributed lock (Redisson).
 
-- User authentication and authorization (JWT)
-- Compliance obligation management (CRUD)
-- Email notifications for new assignments
-- Scheduled alerts for overdue and upcoming obligations
-- Weekly summary reports
-- Audit logging with Spring AOP
-- Pagination and CSV export
-- AI-powered compliance analysis
-- Role-based access control (RBAC)
+### P3-006 — Search uses LIKE (not full-text index)
+`/api/obligations/search?keyword=` uses `LOWER(col) LIKE '%keyword%'` which cannot use a B-tree index.  
+**Impact:** Slow on very large datasets (10 000+ rows).  
+**Fix path:** Add `pg_trgm` GIN index or integrate Elasticsearch.
 
-## API Endpoints
+### P3-007 — Weekly summary email hardcoded recipient fallback
+If `APP_ADMIN_EMAIL` env var is not set, the weekly summary goes to `admin@company.com`.  
+**Workaround:** Set `APP_ADMIN_EMAIL` in `.env`.
 
-### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
+### P3-008 — CSV export has no row limit
+The export endpoint streams all rows in pages of 500. For very large datasets this could be slow.  
+**Fix path:** Add a `?maxRows=` parameter or a server-side limit.
 
-### Compliance Obligations
-- `GET /api/obligations/all` - Get all obligations (paginated)
-- `GET /api/obligations/{id}` - Get obligation by ID
-- `POST /api/obligations` - Create new obligation
-- `PUT /api/obligations/{id}` - Update obligation
-- `DELETE /api/obligations/{id}` - Delete obligation
-- `GET /api/obligations/export` - Export to CSV
+---
 
-### AI Service
-- `POST /ai/analyze` - AI compliance analysis
-- `POST /ai/predict` - Deadline prediction
+## Security Notes
 
-## Health Checks
+- Never commit `.env` or `application.properties` to version control (both are in `.gitignore`)
+- Set `JWT_SECRET` to a random 64-character string before any real deployment (`openssl rand -hex 32`)
+- Change default user passwords immediately after first login in any non-demo environment
+- The `application-docker.properties` profile uses `ddl-auto=validate` — Flyway owns all schema changes
 
-- **Backend**: http://localhost:8080/actuator/health
-- **AI Service**: http://localhost:5000/health
-
-## Security Note
-
-- Never commit `.env` or `application.properties` to version control
-- Use environment variables or external configuration for sensitive data in production
-- The `.gitignore` file excludes sensitive configuration files
+---
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **Port conflicts**: Ensure ports 80, 8080, 5000, 5432, 6379 are available
-2. **Memory issues**: Increase Docker memory allocation to at least 4GB
-3. **Database connection**: Check .env file configuration
-4. **Build failures**: Ensure Docker has sufficient disk space
-
-### Reset Everything
-
-```bash
-# Stop and remove all containers and volumes
-docker-compose down -v
-
-# Clean rebuild
-docker-compose up --build --force-recreate
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Backend exits immediately | Missing env vars in `.env` | Check `docker-compose logs backend` |
+| 401 on all API calls | JWT_SECRET mismatch between restarts | Restart all services together |
+| Flyway migration fails | DB already has schema from old run | Add `spring.flyway.baseline-on-migrate=true` (already set in docker profile) |
+| Port conflict | Another service on 80/8080/5432/6379 | Stop conflicting service or change port mapping in `docker-compose.yml` |
+| Email not sent | SMTP credentials wrong | Check `SPRING_MAIL_*` vars in `.env`; errors are logged but non-fatal |
