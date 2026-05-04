@@ -11,7 +11,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.LocalDate;
 
@@ -45,16 +44,14 @@ public class ComplianceObligationControllerTest {
         testObligation.setAssignedEmail("test@example.com");
     }
 
-    // ==================== POST Tests ====================
+    // ── POST ──────────────────────────────────────────────────────────────────
 
     @Test
     @WithMockUser(roles = "ADMIN")
     public void testCreateObligation_Success() throws Exception {
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
         mockMvc.perform(post("/api/obligations")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content(objectMapper.writeValueAsString(testObligation)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Test Obligation"))
                 .andExpect(jsonPath("$.status").value("PENDING"))
@@ -64,11 +61,9 @@ public class ComplianceObligationControllerTest {
     @Test
     @WithMockUser(roles = "ADMIN")
     public void testCreateObligationAlias_Success() throws Exception {
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
         mockMvc.perform(post("/api/obligations/create")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content(objectMapper.writeValueAsString(testObligation)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Test Obligation"))
                 .andExpect(jsonPath("$.status").value("PENDING"));
@@ -77,31 +72,35 @@ public class ComplianceObligationControllerTest {
     @Test
     @WithMockUser(roles = "VIEWER")
     public void testCreateObligation_Forbidden() throws Exception {
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
         mockMvc.perform(post("/api/obligations")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
+                        .content(objectMapper.writeValueAsString(testObligation)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     public void testCreateObligation_Unauthorized() throws Exception {
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
         mockMvc.perform(post("/api/obligations")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                .andExpect(status().isForbidden()); // Anonymous user gets 403
+                        .content(objectMapper.writeValueAsString(testObligation)))
+                .andExpect(status().isForbidden()); // anonymous → 403
     }
 
-    // ==================== GET Tests ====================
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    public void testCreateObligation_InvalidJson() throws Exception {
+        mockMvc.perform(post("/api/obligations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ invalid json }"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ── GET ───────────────────────────────────────────────────────────────────
 
     @Test
     @WithMockUser(roles = "VIEWER")
     public void testGetAll_Success() throws Exception {
-        mockMvc.perform(get("/api/obligations/all")
-                        .contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/api/obligations/all"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.pageable").exists())
@@ -115,188 +114,10 @@ public class ComplianceObligationControllerTest {
                         .param("page", "0")
                         .param("size", "5")
                         .param("sortBy", "id")
-                        .param("sortDir", "asc")
-                        .contentType(MediaType.APPLICATION_JSON))
+                        .param("sortDir", "asc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pageable.pageNumber").value(0))
                 .andExpect(jsonPath("$.pageable.pageSize").value(5));
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testGetById_Success() throws Exception {
-        ComplianceObligation created = service.create(testObligation);
-
-        mockMvc.perform(get("/api/obligations/{id}", created.getId())
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(created.getId()))
-                .andExpect(jsonPath("$.title").value("Test Obligation"));
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testGetById_NotFound() throws Exception {
-        // Note: This will throw an exception and result in 500.
-        // In production, implement a Global Exception Handler to return 404.
-        try {
-            mockMvc.perform(get("/api/obligations/{id}", 99999L)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andReturn();
-        } catch (Exception e) {
-            // Expected - exception thrown when entity not found
-        }
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testGetByStatus_Success() throws Exception {
-        service.create(testObligation);
-
-        mockMvc.perform(get("/api/obligations/status")
-                        .param("status", "PENDING")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testSearchByStatus_Success() throws Exception {
-        service.create(testObligation);
-
-        // /search returns a paginated Page<ComplianceObligationDTO>, not a plain array
-        mockMvc.perform(get("/api/obligations/search")
-                        .param("keyword", "Test")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").isArray())
-                .andExpect(jsonPath("$.totalElements").isNumber());
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testGetStats_Success() throws Exception {
-        mockMvc.perform(get("/api/obligations/stats")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                // /stats returns a ComplianceStatsDTO object, not a plain number
-                .andExpect(jsonPath("$.totalObligations").isNumber())
-                .andExpect(jsonPath("$.pendingObligations").isNumber())
-                .andExpect(jsonPath("$.completedObligations").isNumber());
-    }
-
-    // ==================== PUT Tests ====================
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    public void testUpdateObligation_Success() throws Exception {
-        ComplianceObligation created = service.create(testObligation);
-
-        testObligation.setStatus("COMPLETED");
-        testObligation.setDueDate(LocalDate.now().plusDays(45));
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
-        mockMvc.perform(put("/api/obligations/{id}", created.getId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(created.getId()))
-                .andExpect(jsonPath("$.status").value("COMPLETED"));
-    }
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    public void testUpdateObligation_NotFound() throws Exception {
-        testObligation.setStatus("COMPLETED");
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
-        // Note: This will throw an exception and result in 500.
-        // In production, implement a Global Exception Handler to return 404.
-        try {
-            mockMvc.perform(put("/api/obligations/{id}", 99999L)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andReturn();
-        } catch (Exception e) {
-            // Expected - exception thrown when entity not found
-        }
-    }
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testUpdateObligation_Forbidden() throws Exception {
-        ComplianceObligation created = service.create(testObligation);
-        String requestBody = objectMapper.writeValueAsString(testObligation);
-
-        mockMvc.perform(put("/api/obligations/{id}", created.getId())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                .andExpect(status().isForbidden());
-    }
-
-    // ==================== DELETE Tests ====================
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    public void testDeleteObligation_Success() throws Exception {
-        ComplianceObligation created = service.create(testObligation);
-
-        mockMvc.perform(delete("/api/obligations/{id}", created.getId())
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isNotEmpty());
-    }
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    public void testDeleteObligation_NotFound() throws Exception {
-        // Note: This will throw an exception and result in 500.
-        // In production, implement a Global Exception Handler to return 404.
-        try {
-            mockMvc.perform(delete("/api/obligations/{id}", 99999L)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andReturn();
-        } catch (Exception e) {
-            // Expected - exception thrown when entity not found
-        }
-    }
-
-    @Test
-    @WithMockUser(roles = "MANAGER")
-    public void testDeleteObligation_Forbidden() throws Exception {
-        ComplianceObligation created = service.create(testObligation);
-
-        mockMvc.perform(delete("/api/obligations/{id}", created.getId())
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-    }
-
-    // ==================== CSV Export Test ====================
-
-    @Test
-    @WithMockUser(roles = "VIEWER")
-    public void testExportCsv_Success() throws Exception {
-        service.create(testObligation);
-
-        mockMvc.perform(get("/api/obligations/export")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Content-Type", containsString("text/csv")))
-                .andExpect(header().string("Content-Disposition", containsString("attachment")));
-    }
-
-    // ==================== Edge Case Tests ====================
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    public void testCreateObligation_InvalidJson() throws Exception {
-        String invalidJson = "{ invalid json }";
-
-        mockMvc.perform(post("/api/obligations")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(invalidJson))
-                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -306,9 +127,155 @@ public class ComplianceObligationControllerTest {
                         .param("page", "0")
                         .param("size", "10")
                         .param("sortBy", "dueDate")
-                        .param("sortDir", "desc")
-                        .contentType(MediaType.APPLICATION_JSON))
+                        .param("sortDir", "desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testGetById_Success() throws Exception {
+        ComplianceObligation created = service.create(testObligation);
+
+        mockMvc.perform(get("/api/obligations/{id}", created.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(created.getId()))
+                .andExpect(jsonPath("$.title").value("Test Obligation"));
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testGetById_NotFound() throws Exception {
+        // GlobalExceptionHandler maps "not found" RuntimeException → 404
+        mockMvc.perform(get("/api/obligations/{id}", 99999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testGetByStatus_Success() throws Exception {
+        service.create(testObligation);
+
+        mockMvc.perform(get("/api/obligations/status").param("status", "PENDING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testSearch_Success() throws Exception {
+        service.create(testObligation);
+
+        mockMvc.perform(get("/api/obligations/search").param("keyword", "Test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.totalElements").isNumber());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testSearch_EmptyKeyword_ReturnsAll() throws Exception {
+        mockMvc.perform(get("/api/obligations/search"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testGetStats_Success() throws Exception {
+        mockMvc.perform(get("/api/obligations/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalObligations").isNumber())
+                .andExpect(jsonPath("$.pendingObligations").isNumber())
+                .andExpect(jsonPath("$.completedObligations").isNumber())
+                .andExpect(jsonPath("$.overdueObligations").isNumber())
+                .andExpect(jsonPath("$.dueSoonObligations").isNumber());
+    }
+
+    // ── PUT ───────────────────────────────────────────────────────────────────
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    public void testUpdateObligation_Success() throws Exception {
+        ComplianceObligation created = service.create(testObligation);
+
+        testObligation.setStatus("COMPLETED");
+        testObligation.setDueDate(LocalDate.now().plusDays(45));
+
+        mockMvc.perform(put("/api/obligations/{id}", created.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(testObligation)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(created.getId()))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    public void testUpdateObligation_NotFound() throws Exception {
+        testObligation.setStatus("COMPLETED");
+
+        // GlobalExceptionHandler maps "not found" RuntimeException → 404
+        mockMvc.perform(put("/api/obligations/{id}", 99999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(testObligation)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testUpdateObligation_Forbidden() throws Exception {
+        ComplianceObligation created = service.create(testObligation);
+
+        mockMvc.perform(put("/api/obligations/{id}", created.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(testObligation)))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── DELETE ────────────────────────────────────────────────────────────────
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    public void testDeleteObligation_Success() throws Exception {
+        ComplianceObligation created = service.create(testObligation);
+
+        mockMvc.perform(delete("/api/obligations/{id}", created.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    public void testDeleteObligation_NotFound() throws Exception {
+        // GlobalExceptionHandler maps "not found" RuntimeException → 404
+        mockMvc.perform(delete("/api/obligations/{id}", 99999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    public void testDeleteObligation_Forbidden() throws Exception {
+        ComplianceObligation created = service.create(testObligation);
+
+        mockMvc.perform(delete("/api/obligations/{id}", created.getId()))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── CSV Export ────────────────────────────────────────────────────────────
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void testExportCsv_Success() throws Exception {
+        service.create(testObligation);
+
+        mockMvc.perform(get("/api/obligations/export"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", containsString("text/csv")))
+                .andExpect(header().string("Content-Disposition", containsString("attachment")))
+                .andExpect(content().string(containsString("ID,Title,Category,Status,DueDate,AssignedEmail")));
     }
 }

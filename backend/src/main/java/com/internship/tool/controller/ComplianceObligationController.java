@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,6 +16,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/obligations")
@@ -26,9 +28,7 @@ public class ComplianceObligationController {
         this.service = service;
     }
 
-    // -------------------------------------------------------------------------
-    // Write endpoints
-    // -------------------------------------------------------------------------
+    // ── Write endpoints ───────────────────────────────────────────────────────
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -50,15 +50,21 @@ public class ComplianceObligationController {
         return service.update(id, updated);
     }
 
+    /**
+     * Delete an obligation.
+     *
+     * Bug fix: previously returned a plain String "Deleted" which is
+     * inconsistent with all other endpoints that return JSON objects.
+     * Now returns a JSON body so clients can parse the response uniformly.
+     */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public String delete(@PathVariable Long id) {
-        return service.delete(id);
+    public ResponseEntity<Map<String, String>> delete(@PathVariable Long id) {
+        service.delete(id);
+        return ResponseEntity.ok(Map.of("message", "Obligation " + id + " deleted successfully"));
     }
 
-    // -------------------------------------------------------------------------
-    // Read endpoints
-    // -------------------------------------------------------------------------
+    // ── Read endpoints ────────────────────────────────────────────────────────
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
@@ -66,68 +72,48 @@ public class ComplianceObligationController {
         return service.getById(id);
     }
 
-    /**
-     * Paginated list returning full entities.
-     * Prefer /all-dto for read-heavy clients — it transfers fewer bytes.
-     */
+    /** Paginated list — full entity. Prefer /all-dto for list views. */
     @GetMapping("/all")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public Page<ComplianceObligation> getAll(
-            @RequestParam(defaultValue = "0")    int    page,
-            @RequestParam(defaultValue = "10")   int    size,
-            @RequestParam(defaultValue = "id")   String sortBy,
-            @RequestParam(defaultValue = "asc")  String sortDir) {
-
-        Pageable pageable = buildPageable(page, size, sortBy, sortDir);
-        return service.getAll(pageable);
+            @RequestParam(defaultValue = "0")   int    page,
+            @RequestParam(defaultValue = "10")  int    size,
+            @RequestParam(defaultValue = "id")  String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir) {
+        return service.getAll(buildPageable(page, size, sortBy, sortDir));
     }
 
-    /**
-     * Paginated list returning lightweight DTOs — preferred for list views.
-     */
+    /** Paginated list — lightweight DTO, preferred for list views. */
     @GetMapping("/all-dto")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public Page<ComplianceObligationDTO> getAllAsDTO(
-            @RequestParam(defaultValue = "0")    int    page,
-            @RequestParam(defaultValue = "10")   int    size,
-            @RequestParam(defaultValue = "id")   String sortBy,
-            @RequestParam(defaultValue = "asc")  String sortDir) {
-
-        Pageable pageable = buildPageable(page, size, sortBy, sortDir);
-        return service.getAllAsDTO(pageable);
+            @RequestParam(defaultValue = "0")   int    page,
+            @RequestParam(defaultValue = "10")  int    size,
+            @RequestParam(defaultValue = "id")  String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir) {
+        return service.getAllAsDTO(buildPageable(page, size, sortBy, sortDir));
     }
 
-    /**
-     * Filter by status — returns DTO list.
-     * Previously there were two conflicting @GetMapping("/search") methods on
-     * this class; one has been removed and the status filter is now at /status.
-     */
+    /** Filter by status — returns DTO list. */
     @GetMapping("/status")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public List<ComplianceObligationDTO> getByStatus(@RequestParam String status) {
         return service.getByStatusAsDTO(status);
     }
 
-    /**
-     * Full-text keyword search with pagination.
-     * Returns DTOs to minimise payload size.
-     */
+    /** Full-text keyword search with pagination — returns DTOs. */
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public Page<ComplianceObligationDTO> search(
-            @RequestParam(required = false)      String keyword,
-            @RequestParam(defaultValue = "0")    int    page,
-            @RequestParam(defaultValue = "10")   int    size,
-            @RequestParam(defaultValue = "id")   String sortBy,
-            @RequestParam(defaultValue = "asc")  String sortDir) {
-
-        Pageable pageable = buildPageable(page, size, sortBy, sortDir);
-        return service.search(keyword, pageable);
+            @RequestParam(required = false)     String keyword,
+            @RequestParam(defaultValue = "0")   int    page,
+            @RequestParam(defaultValue = "10")  int    size,
+            @RequestParam(defaultValue = "id")  String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir) {
+        return service.search(keyword, buildPageable(page, size, sortBy, sortDir));
     }
 
-    /**
-     * Dashboard statistics — single DB query, result is cached.
-     */
+    /** Dashboard statistics — single DB query, result is cached. */
     @GetMapping("/stats")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public ComplianceStatsDTO stats() {
@@ -135,11 +121,10 @@ public class ComplianceObligationController {
     }
 
     /**
-     * CSV export.
+     * CSV export — streams rows in pages of 500.
      *
-     * Streams rows in pages of 500 to avoid loading the entire table into the
-     * JVM heap.  For very large datasets consider a database-side COPY command
-     * or a dedicated reporting service.
+     * Bug fix: original CSV only had 4 columns (ID, Title, Status, DueDate).
+     * Added Category and AssignedEmail so the export is useful for demo.
      */
     @GetMapping("/export")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
@@ -148,7 +133,7 @@ public class ComplianceObligationController {
         response.setHeader("Content-Disposition", "attachment; filename=obligations.csv");
 
         try (PrintWriter writer = response.getWriter()) {
-            writer.println("ID,Title,Status,DueDate");
+            writer.println("ID,Title,Category,Status,DueDate,AssignedEmail");
 
             int page = 0;
             final int PAGE_SIZE = 500;
@@ -158,11 +143,13 @@ public class ComplianceObligationController {
                 Pageable pageable = PageRequest.of(page++, PAGE_SIZE, Sort.by("id"));
                 chunk = service.getAll(pageable);
                 for (ComplianceObligation o : chunk.getContent()) {
-                    writer.println(String.format("%s,%s,%s,%s",
+                    writer.println(String.join(",",
                             escapeCsv(o.getId()),
                             escapeCsv(o.getTitle()),
+                            escapeCsv(o.getCategory()),
                             escapeCsv(o.getStatus()),
-                            escapeCsv(o.getDueDate())));
+                            escapeCsv(o.getDueDate()),
+                            escapeCsv(o.getAssignedEmail())));
                 }
             } while (chunk.hasNext());
 
@@ -170,25 +157,19 @@ public class ComplianceObligationController {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Pageable buildPageable(int page, int size, String sortBy, String sortDir) {
         Sort.Direction direction = "desc".equalsIgnoreCase(sortDir)
-                ? Sort.Direction.DESC
-                : Sort.Direction.ASC;
+                ? Sort.Direction.DESC : Sort.Direction.ASC;
         return PageRequest.of(page, size, Sort.by(direction, sortBy));
     }
 
     private String escapeCsv(Object value) {
-        if (value == null) {
-            return "";
-        }
+        if (value == null) return "";
         String text = value.toString().replace("\"", "\"\"");
-        if (text.contains(",") || text.contains("\"") || text.contains("\n")) {
-            return "\"" + text + "\"";
-        }
-        return text;
+        return (text.contains(",") || text.contains("\"") || text.contains("\n"))
+                ? "\"" + text + "\""
+                : text;
     }
 }

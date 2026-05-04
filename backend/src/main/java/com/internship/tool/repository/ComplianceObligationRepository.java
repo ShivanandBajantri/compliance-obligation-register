@@ -16,29 +16,11 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDate;
 import java.util.List;
 
-/**
- * Repository for ComplianceObligation.
- *
- * Performance notes:
- * - @EntityGraph is intentionally NOT used here because ComplianceObligation has no
- *   lazy-loaded associations. @EntityGraph only helps with association fetching (e.g.
- *   @OneToMany, @ManyToMany). Applying it to scalar columns has no effect and adds noise.
- * - All list queries that are read-only carry the hibernate.readOnly hint so Hibernate
- *   skips dirty-checking on the returned objects.
- * - Bulk DML (markAlertsSent) uses @Modifying to execute as a single UPDATE statement
- *   instead of loading each entity and saving it individually.
- * - DTO projections (JPQL constructor expressions) avoid loading full entities when only
- *   a subset of columns is needed.
- * - The single-query stats aggregation (getComplianceStats) replaces five separate
- *   count queries that were previously issued by the service layer.
- */
 @Repository
 public interface ComplianceObligationRepository
         extends JpaRepository<ComplianceObligation, Long> {
 
-    // -------------------------------------------------------------------------
-    // Simple filter queries
-    // -------------------------------------------------------------------------
+    // ── Simple filter queries ─────────────────────────────────────────────────
 
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
     List<ComplianceObligation> findByStatus(String status);
@@ -46,9 +28,7 @@ public interface ComplianceObligationRepository
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
     List<ComplianceObligation> findByDueDateBetween(LocalDate startDate, LocalDate endDate);
 
-    // -------------------------------------------------------------------------
-    // Paginated full-entity query (used by /all endpoint)
-    // -------------------------------------------------------------------------
+    // ── Paginated full-entity query ───────────────────────────────────────────
 
     @QueryHints({
         @QueryHint(name = "org.hibernate.fetchSize", value = "50"),
@@ -56,10 +36,7 @@ public interface ComplianceObligationRepository
     })
     Page<ComplianceObligation> findAll(Pageable pageable);
 
-    // -------------------------------------------------------------------------
-    // Scheduler queries — filtered to only unprocessed, non-completed rows
-    // so the index on (status, alert_sent) is used.
-    // -------------------------------------------------------------------------
+    // ── Scheduler queries ─────────────────────────────────────────────────────
 
     @Query("SELECT o FROM ComplianceObligation o " +
            "WHERE o.status != 'COMPLETED' AND o.alertSent = false AND o.dueDate < :today")
@@ -71,19 +48,13 @@ public interface ComplianceObligationRepository
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
     List<ComplianceObligation> findDueSoonObligations(@Param("dueDate") LocalDate dueDate);
 
-    // -------------------------------------------------------------------------
-    // Bulk UPDATE — @Modifying is required for any DML statement.
-    // Without it Spring Data throws an InvalidDataAccessApiUsageException.
-    // clearAutomatically = true keeps the first-level cache consistent.
-    // -------------------------------------------------------------------------
+    // ── Bulk UPDATE ───────────────────────────────────────────────────────────
 
     @Modifying(clearAutomatically = true)
     @Query("UPDATE ComplianceObligation o SET o.alertSent = true WHERE o.id IN :ids")
     void markAlertsSent(@Param("ids") List<Long> ids);
 
-    // -------------------------------------------------------------------------
-    // Count queries for dashboard stats
-    // -------------------------------------------------------------------------
+    // ── Count queries ─────────────────────────────────────────────────────────
 
     long countByStatus(String status);
 
@@ -96,10 +67,7 @@ public interface ComplianceObligationRepository
     long countDueSoonObligations(@Param("today") LocalDate today,
                                  @Param("futureDate") LocalDate futureDate);
 
-    // -------------------------------------------------------------------------
-    // DTO projection queries — constructor expressions select only the columns
-    // that are actually needed, reducing data transfer and skipping dirty-check.
-    // -------------------------------------------------------------------------
+    // ── DTO projection queries ────────────────────────────────────────────────
 
     @Query("SELECT new com.internship.tool.dto.ComplianceObligationDTO(" +
            "o.id, o.title, o.description, o.category, o.status, o.dueDate, " +
@@ -118,11 +86,7 @@ public interface ComplianceObligationRepository
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
     List<ComplianceObligationDTO> findByStatusAsDTO(@Param("status") String status);
 
-    // -------------------------------------------------------------------------
-    // Full-text keyword search with DTO projection and pagination.
-    // LOWER + LIKE is not index-friendly for large tables; for production scale
-    // consider a full-text search extension (pg_trgm / Elasticsearch).
-    // -------------------------------------------------------------------------
+    // ── Keyword search ────────────────────────────────────────────────────────
 
     @Query("SELECT new com.internship.tool.dto.ComplianceObligationDTO(" +
            "o.id, o.title, o.description, o.category, o.status, o.dueDate, " +
@@ -138,18 +102,20 @@ public interface ComplianceObligationRepository
     Page<ComplianceObligationDTO> searchByKeyword(@Param("keyword") String keyword,
                                                    Pageable pageable);
 
-    // -------------------------------------------------------------------------
-    // Single-query dashboard aggregation — replaces five separate count queries.
-    // Uses CASE WHEN inside COUNT/SUM so the DB scans the table only once.
-    // -------------------------------------------------------------------------
+    // ── Dashboard stats — single query ────────────────────────────────────────
+    //
+    // Bug fix: SUM(CASE WHEN ... THEN 1 ELSE 0 END) returns BigDecimal in H2
+    // but Long in PostgreSQL, causing a ClassCastException in the JPQL
+    // constructor expression on H2 (constructor takes long primitives).
+    // COUNT(CASE WHEN ... THEN 1 END) always returns Long on both databases.
 
     @Query("SELECT new com.internship.tool.dto.ComplianceStatsDTO(" +
            "COUNT(o), " +
-           "SUM(CASE WHEN o.status = 'PENDING'    THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.status = 'COMPLETED'  THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.dueDate < :today      AND o.status != 'COMPLETED' THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.dueDate BETWEEN :today AND :futureDate " +
-           "         AND o.status != 'COMPLETED'  THEN 1 ELSE 0 END)" +
+           "COUNT(CASE WHEN o.status = 'PENDING'   THEN 1 END), " +
+           "COUNT(CASE WHEN o.status = 'COMPLETED' THEN 1 END), " +
+           "COUNT(CASE WHEN o.dueDate < :today     AND o.status != 'COMPLETED' THEN 1 END), " +
+           "COUNT(CASE WHEN o.dueDate BETWEEN :today AND :futureDate " +
+           "           AND o.status != 'COMPLETED' THEN 1 END)" +
            ") FROM ComplianceObligation o")
     ComplianceStatsDTO getComplianceStats(@Param("today") LocalDate today,
                                           @Param("futureDate") LocalDate futureDate);

@@ -91,7 +91,6 @@ public class AuditAspect {
         if (args == null || args.length == 0) {
             return null;
         }
-
         for (Object arg : args) {
             if (arg != null && !(arg instanceof String) && !(arg instanceof Number)) {
                 return arg.getClass().getSimpleName();
@@ -102,6 +101,10 @@ public class AuditAspect {
 
     private String resolveEntityType(Object result) {
         if (result == null) {
+            return null;
+        }
+        // Bug fix: result of delete() is a String "Deleted" — don't use that as entity type
+        if (result instanceof String) {
             return null;
         }
         return result.getClass().getSimpleName();

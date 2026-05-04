@@ -7,14 +7,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
@@ -32,23 +30,35 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String authorizationHeader = request.getHeader("Authorization");
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            String token = authorizationHeader.substring(7);
+
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7).trim();
             try {
                 if (jwtUtils.validateToken(token)) {
                     String username = jwtUtils.getUsernameFromToken(token);
-                    var userDetails = userDetailsService.loadUserByUsername(username);
-                    List<SimpleGrantedAuthority> authorities = jwtUtils.getRolesFromToken(token).stream()
-                            .map(SimpleGrantedAuthority::new)
-                            .collect(Collectors.toList());
 
-                    UsernamePasswordAuthenticationToken authenticationToken =
-                            new UsernamePasswordAuthenticationToken(userDetails, null, authorities);
-                    SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+                    // Load full UserDetails from DB so we always use the current
+                    // roles stored in the database, not stale roles baked into
+                    // an old token. The @EntityGraph on UserRepository.findByUsername
+                    // ensures this is a single JOIN query (no N+1).
+                    UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+                    // Use the authorities from UserDetails (sourced from DB),
+                    // not from the JWT claim — this ensures role changes take
+                    // effect on the next request after the token is refreshed.
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(
+                                    userDetails, null, userDetails.getAuthorities());
+
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             } catch (Exception ex) {
-                logger.warn("JWT authentication failed: {}", ex.getMessage());
+                // Clear any partial authentication state on failure
+                SecurityContextHolder.clearContext();
+                logger.warn("JWT authentication failed for request [{}]: {}",
+                        request.getRequestURI(), ex.getMessage());
             }
         }
 
