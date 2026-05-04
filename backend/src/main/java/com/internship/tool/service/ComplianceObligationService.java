@@ -51,8 +51,14 @@ public class ComplianceObligationService {
         ComplianceObligation existing = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Not found"));
 
+        existing.setTitle(updated.getTitle());
+        existing.setDescription(updated.getDescription());
+        existing.setCategory(updated.getCategory());
         existing.setStatus(updated.getStatus());
         existing.setDueDate(updated.getDueDate());
+        existing.setAssignedEmail(updated.getAssignedEmail());
+        existing.setAlertSent(updated.isAlertSent());
+        existing.setUpdatedAt(LocalDateTime.now());
 
         return repository.save(existing);
     }
@@ -61,9 +67,7 @@ public class ComplianceObligationService {
         ComplianceObligation existing = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Not found"));
 
-        existing.setStatus("DELETED");
-        repository.save(existing);
-
+        repository.delete(existing);
         return "Deleted";
     }
 

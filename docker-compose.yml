@@ -42,10 +42,8 @@ services:
     env_file:
       - .env
     depends_on:
-      postgres:
-        condition: service_started
-      redis:
-        condition: service_started
+      - postgres
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s

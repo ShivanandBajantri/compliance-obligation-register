@@ -2,6 +2,7 @@ package com.internship.tool.aspect;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.internship.tool.entity.AuditLog;
 import com.internship.tool.repository.AuditLogRepository;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -23,7 +24,10 @@ public class AuditAspect {
 
     public AuditAspect(AuditLogRepository auditLogRepository) {
         this.auditLogRepository = auditLogRepository;
-        this.objectMapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+        this.objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .enable(SerializationFeature.INDENT_OUTPUT);
     }
 
     @Around("execution(* com.internship.tool.service.*.*(..))")
