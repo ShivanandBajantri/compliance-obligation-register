@@ -1,0 +1,73 @@
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+}
+
+.App-main {
+  padding: 20px;
+}
+
+.obligations-list {
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.obligation-item {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0;
+  background-color: #f9f9f9;
+}
+
+.obligation-item h3 {
+  margin: 0 0 10px 0;
+  color: #333;
+}
+
+.obligation-item p {
+  margin: 5px 0;
+  color: #666;
+}
+
+.status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status.pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status.in_progress {
+  background-color: #cce5ff;
+  color: #004085;
+}
+
+.status.completed {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.due-date {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.9rem;
+  color: #666;
+}
