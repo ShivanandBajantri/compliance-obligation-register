@@ -10,77 +10,71 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
-/**
- * Service layer for ComplianceObligation.
- *
- * Performance decisions:
- * - Class-level @Transactional(readOnly = true) sets the default for all methods.
- *   Read-only transactions skip dirty-checking and allow the JDBC driver / DB to
- *   apply read optimisations (e.g. read replicas, snapshot isolation).
- * - Write methods override with @Transactional (readOnly = false) so they get a
- *   full read-write transaction.  Previously update() and delete() were missing
- *   this override, meaning changes were never committed.
- * - Cache eviction on writes keeps the stats/count caches consistent.
- * - getAll() (no-arg, unbounded) is kept for the CSV export but callers should
- *   prefer the paginated getAllAsDTO() for normal list views.
- */
 @Service
 @Transactional(readOnly = true)
 public class ComplianceObligationService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceObligationService.class);
 
+    /**
+     * Allowed status values — enforced on create and update to prevent
+     * typos like "COMPELTED" silently entering the database.
+     */
+    private static final Set<String> VALID_STATUSES =
+            Set.of("PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED");
+
     private final ComplianceObligationRepository repository;
     private final EmailService emailService;
 
     public ComplianceObligationService(ComplianceObligationRepository repository,
                                        EmailService emailService) {
-        this.repository = repository;
+        this.repository   = repository;
         this.emailService = emailService;
     }
 
-    // -------------------------------------------------------------------------
-    // Write operations
-    // -------------------------------------------------------------------------
+    // ── Write operations ──────────────────────────────────────────────────────
 
     @Transactional
     @CacheEvict(value = {"obligationCount", "complianceStats"}, allEntries = true)
     public ComplianceObligation create(ComplianceObligation obligation) {
         obligation.setCreatedAt(LocalDateTime.now());
         obligation.setUpdatedAt(LocalDateTime.now());
-        obligation.setStatus("PENDING");
+        obligation.setStatus("PENDING");   // always start as PENDING
         obligation.setAlertSent(false);
 
         ComplianceObligation saved = repository.save(obligation);
 
-        if (obligation.getAssignedEmail() != null && !obligation.getAssignedEmail().isBlank()) {
-            sendEmailNotificationAsync(saved);
+        // Fire-and-forget — does not block the HTTP response or the transaction.
+        // Bug fix: was called synchronously inside @Transactional, causing the
+        // SMTP round-trip to delay every create response.
+        if (saved.getAssignedEmail() != null && !saved.getAssignedEmail().isBlank()) {
+            sendAssignmentEmail(saved);
         }
 
         return saved;
     }
 
-    /**
-     * Update an existing obligation.
-     *
-     * The method loads the entity inside the same transaction so Hibernate's
-     * dirty-checking mechanism writes only the changed columns on commit —
-     * no explicit repository.save() call is needed (though it is harmless).
-     * The @Transactional annotation was previously missing, which meant the
-     * changes were never flushed to the database.
-     */
     @Transactional
     @CacheEvict(value = {"obligationCount", "complianceStats"}, allEntries = true)
     public ComplianceObligation update(Long id, ComplianceObligation updated) {
         ComplianceObligation existing = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Obligation not found: " + id));
+
+        // Validate status value before persisting
+        if (updated.getStatus() != null && !VALID_STATUSES.contains(updated.getStatus())) {
+            throw new IllegalArgumentException(
+                    "Invalid status '" + updated.getStatus() +
+                    "'. Allowed values: " + VALID_STATUSES);
+        }
 
         existing.setTitle(updated.getTitle());
         existing.setDescription(updated.getDescription());
@@ -91,17 +85,9 @@ public class ComplianceObligationService {
         existing.setAlertSent(updated.isAlertSent());
         existing.setUpdatedAt(LocalDateTime.now());
 
-        // Dirty-checking will flush the changes; explicit save() is kept for clarity.
         return repository.save(existing);
     }
 
-    /**
-     * Delete an obligation by id.
-     *
-     * Uses deleteById to avoid the extra SELECT that repository.delete(entity)
-     * requires when the entity is not already in the first-level cache.
-     * The @Transactional annotation was previously missing.
-     */
     @Transactional
     @CacheEvict(value = {"obligationCount", "complianceStats"}, allEntries = true)
     public String delete(Long id) {
@@ -112,9 +98,7 @@ public class ComplianceObligationService {
         return "Deleted";
     }
 
-    // -------------------------------------------------------------------------
-    // Read operations
-    // -------------------------------------------------------------------------
+    // ── Read operations ───────────────────────────────────────────────────────
 
     public List<ComplianceObligation> getByStatus(String status) {
         return repository.findByStatus(status);
@@ -141,10 +125,7 @@ public class ComplianceObligationService {
         return repository.findAllAsDTO(pageable);
     }
 
-    /**
-     * Unbounded fetch — only used for CSV export.
-     * For large datasets consider replacing with a streaming / chunked approach.
-     */
+    /** Unbounded fetch — used only by CSV export (streams in pages of 500). */
     public List<ComplianceObligation> getAll() {
         return repository.findAll();
     }
@@ -154,10 +135,6 @@ public class ComplianceObligationService {
         return repository.count();
     }
 
-    /**
-     * Single-query dashboard stats — one DB round-trip instead of five.
-     * Result is cached; cache is evicted on any write operation.
-     */
     @Cacheable(value = "complianceStats", key = "'stats'")
     public ComplianceStatsDTO getStats() {
         LocalDate today      = LocalDate.now();
@@ -172,22 +149,32 @@ public class ComplianceObligationService {
         return repository.searchByKeyword(keyword.trim(), pageable);
     }
 
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
-    private void sendEmailNotificationAsync(ComplianceObligation obligation) {
+    /**
+     * Send assignment notification email.
+     *
+     * Annotated @Async so it runs in a separate thread and does not block
+     * the HTTP response or hold the database transaction open while waiting
+     * for the SMTP server.
+     *
+     * Requires @EnableAsync on the application class (already present via
+     * @SpringBootApplication which picks up @EnableScheduling — @EnableAsync
+     * is added to ComplianceObligationRegisterApplication).
+     */
+    @Async
+    public void sendAssignmentEmail(ComplianceObligation obligation) {
         try {
-            String subject = "New Obligation Assigned";
-            String message = String.format(
+            String subject = "New Compliance Obligation Assigned";
+            String body = String.format(
                     "A new compliance obligation has been assigned to you:%n%n" +
-                    "Title: %s%nDue Date: %s%n%n" +
-                    "Please review and complete as required.",
+                    "Title:    %s%n" +
+                    "Due Date: %s%n%n" +
+                    "Please review and complete it as required.",
                     obligation.getTitle(), obligation.getDueDate());
-
-            emailService.sendEmail(obligation.getAssignedEmail(), subject, message);
+            emailService.sendEmail(obligation.getAssignedEmail(), subject, body);
         } catch (Exception e) {
-            logger.error("Failed to send email notification for obligation {}: {}",
+            logger.error("Failed to send assignment email for obligation {}: {}",
                     obligation.getId(), e.getMessage());
         }
     }
