@@ -16,6 +16,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -44,10 +45,17 @@ public class SecurityConfig {
      *
      * Role names in the DB are stored as "VIEWER", "MANAGER", "ADMIN".
      * Spring Security's hasRole() prepends "ROLE_", so we prefix here.
+     *
+     * For local development with H2, provide default users if database is empty.
      */
     @Bean
     public UserDetailsService userDetailsService() {
         return username -> {
+            // For local development, provide default users
+            if (isLocalDevelopment()) {
+                return getDefaultUser(username);
+            }
+
             com.internship.tool.entity.User user = userRepository.findByUsername(username)
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
 
@@ -62,6 +70,37 @@ public class SecurityConfig {
                     .disabled(!user.isEnabled())
                     .build();
         };
+    }
+
+    private boolean isLocalDevelopment() {
+        // Check if we're using H2 (local dev) vs PostgreSQL (production)
+        return "org.h2.Driver".equals(System.getProperty("spring.datasource.driver-class-name", "org.h2.Driver"));
+    }
+
+    private UserDetails getDefaultUser(String username) {
+        // Default users for local development
+        switch (username) {
+            case "admin":
+                return User.builder()
+                        .username("admin")
+                        .password(passwordEncoder().encode("password"))
+                        .authorities("ROLE_ADMIN")
+                        .build();
+            case "manager":
+                return User.builder()
+                        .username("manager")
+                        .password(passwordEncoder().encode("password"))
+                        .authorities("ROLE_MANAGER")
+                        .build();
+            case "viewer":
+                return User.builder()
+                        .username("viewer")
+                        .password(passwordEncoder().encode("password"))
+                        .authorities("ROLE_VIEWER")
+                        .build();
+            default:
+                throw new UsernameNotFoundException("User not found: " + username);
+        }
     }
 
     @Bean

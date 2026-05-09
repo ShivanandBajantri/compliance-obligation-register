@@ -162,7 +162,14 @@ public class ComplianceObligationService {
     public ComplianceStatsDTO getStats() {
         LocalDate today      = LocalDate.now();
         LocalDate futureDate = today.plusDays(7);
-        return repository.getComplianceStats(today, futureDate);
+        // Use individual count queries — portable across H2 and PostgreSQL.
+        // Each query hits an indexed column so performance is still good.
+        long total     = repository.count();
+        long pending   = repository.countByStatus("PENDING");
+        long completed = repository.countByStatus("COMPLETED");
+        long overdue   = repository.countOverdueObligations(today);
+        long dueSoon   = repository.countDueSoonObligations(today, futureDate);
+        return new ComplianceStatsDTO(total, pending, completed, overdue, dueSoon);
     }
 
     public Page<ComplianceObligationDTO> search(String keyword, Pageable pageable) {

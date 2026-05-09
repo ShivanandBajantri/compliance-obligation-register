@@ -138,19 +138,9 @@ public interface ComplianceObligationRepository
     Page<ComplianceObligationDTO> searchByKeyword(@Param("keyword") String keyword,
                                                    Pageable pageable);
 
-    // -------------------------------------------------------------------------
-    // Single-query dashboard aggregation — replaces five separate count queries.
-    // Uses CASE WHEN inside COUNT/SUM so the DB scans the table only once.
-    // -------------------------------------------------------------------------
-
-    @Query("SELECT new com.internship.tool.dto.ComplianceStatsDTO(" +
-           "COUNT(o), " +
-           "SUM(CASE WHEN o.status = 'PENDING'    THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.status = 'COMPLETED'  THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.dueDate < :today      AND o.status != 'COMPLETED' THEN 1 ELSE 0 END), " +
-           "SUM(CASE WHEN o.dueDate BETWEEN :today AND :futureDate " +
-           "         AND o.status != 'COMPLETED'  THEN 1 ELSE 0 END)" +
-           ") FROM ComplianceObligation o")
-    ComplianceStatsDTO getComplianceStats(@Param("today") LocalDate today,
-                                          @Param("futureDate") LocalDate futureDate);
+    // ── Dashboard stats ───────────────────────────────────────────────────────
+    // Removed the single-query JPQL aggregation — COUNT(CASE WHEN) / SUM(CASE WHEN)
+    // inside a constructor expression is not portable between H2 and PostgreSQL.
+    // Stats are now assembled in the service layer from the individual count
+    // queries above (countByStatus, countOverdueObligations, countDueSoonObligations).
 }

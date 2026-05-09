@@ -3,11 +3,13 @@ package com.internship.tool.controller;
 import com.internship.tool.dto.ComplianceObligationDTO;
 import com.internship.tool.dto.ComplianceStatsDTO;
 import com.internship.tool.entity.ComplianceObligation;
+import com.internship.tool.service.AlertScheduler;
 import com.internship.tool.service.ComplianceObligationService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,15 +17,19 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/obligations")
 public class ComplianceObligationController {
 
     private final ComplianceObligationService service;
+    private final AlertScheduler alertScheduler;
 
-    public ComplianceObligationController(ComplianceObligationService service) {
-        this.service = service;
+    public ComplianceObligationController(ComplianceObligationService service,
+                                          AlertScheduler alertScheduler) {
+        this.service         = service;
+        this.alertScheduler  = alertScheduler;
     }
 
     // -------------------------------------------------------------------------
@@ -132,6 +138,35 @@ public class ComplianceObligationController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'VIEWER')")
     public ComplianceStatsDTO stats() {
         return service.getStats();
+    }
+
+    /**
+     * Manually trigger alert emails for all overdue and due-soon obligations.
+     * Only ADMIN and MANAGER can trigger this.
+     * Returns a JSON summary: { overdue, dueSoon, skipped, total, message }
+     */
+    @PostMapping("/send-alerts")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<Map<String, Object>> sendAlerts() {
+        Map<String, Integer> result = alertScheduler.sendAlerts();
+        int overdue = result.get("overdue");
+        int dueSoon = result.get("dueSoon");
+        int skipped = result.get("skipped");
+        int total   = overdue + dueSoon;
+
+        String message = total == 0
+                ? "No overdue or due-soon obligations found — no alerts sent."
+                : String.format("Alerts sent: %d overdue, %d due-soon.%s",
+                        overdue, dueSoon,
+                        skipped > 0 ? " " + skipped + " skipped (no email assigned)." : "");
+
+        return ResponseEntity.ok(Map.of(
+                "overdue", overdue,
+                "dueSoon", dueSoon,
+                "skipped", skipped,
+                "total",   total,
+                "message", message
+        ));
     }
 
     /**
