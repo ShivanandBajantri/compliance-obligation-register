@@ -30,74 +30,99 @@ public class AlertScheduler {
         this.emailService = emailService;
     }
 
-    // ── Scheduled daily trigger ───────────────────────────────────────────────
+    // ── Scheduled daily trigger (automatic) ──────────────────────────────────
 
     @Scheduled(cron = "0 0 9 * * *")
     @Transactional
     public void checkObligations() {
         logger.info("Scheduled daily obligation check started");
-        Map<String, Integer> result = sendAlerts();
-        logger.info("Scheduled daily check completed — overdue={} dueSoon={}",
-                result.get("overdue"), result.get("dueSoon"));
-    }
-
-    // ── Manual trigger (called from controller) ───────────────────────────────
-
-    /**
-     * Send alert emails to all overdue and due-soon obligations that have
-     * an assigned email and have not yet been alerted.
-     *
-     * Returns a summary map: { overdue: N, dueSoon: N, skipped: N }
-     * — skipped = obligations with no assignedEmail.
-     *
-     * This method is @Transactional so the bulk markAlertsSent() UPDATE
-     * is committed atomically with the email dispatch loop.
-     */
-    @Transactional
-    public Map<String, Integer> sendAlerts() {
         LocalDate today       = LocalDate.now();
         LocalDate dueSoonDate = today.plusDays(7);
 
         List<ComplianceObligation> overdue = repository.findOverdueObligations(today);
         List<ComplianceObligation> dueSoon = repository.findDueSoonObligations(today, dueSoonDate);
 
-        int sentOverdue  = 0;
-        int sentDueSoon  = 0;
-        int skipped      = 0;
-
-        // ── Overdue alerts ────────────────────────────────────────────────────
         if (!overdue.isEmpty()) {
-            List<Long> ids = overdue.stream().map(ComplianceObligation::getId).collect(Collectors.toList());
-            for (ComplianceObligation o : overdue) {
-                if (o.getAssignedEmail() == null || o.getAssignedEmail().isBlank()) {
-                    skipped++;
-                    logger.warn("Obligation {} has no email — skipping overdue alert", o.getId());
-                    continue;
-                }
-                sendOverdueAlert(o);
-                sentOverdue++;
-            }
-            repository.markAlertsSent(ids);
-            logger.info("Overdue alerts sent: {}", sentOverdue);
+            overdue.stream()
+                .filter(o -> o.getAssignedEmail() != null && !o.getAssignedEmail().isBlank())
+                .forEach(this::sendOverdueAlert);
+            repository.markAlertsSent(
+                overdue.stream().map(ComplianceObligation::getId).collect(Collectors.toList()));
         }
-
-        // ── Due-soon alerts ───────────────────────────────────────────────────
         if (!dueSoon.isEmpty()) {
-            List<Long> ids = dueSoon.stream().map(ComplianceObligation::getId).collect(Collectors.toList());
-            for (ComplianceObligation o : dueSoon) {
-                if (o.getAssignedEmail() == null || o.getAssignedEmail().isBlank()) {
-                    skipped++;
-                    logger.warn("Obligation {} has no email — skipping due-soon alert", o.getId());
-                    continue;
-                }
-                sendDueSoonAlert(o);
-                sentDueSoon++;
+            dueSoon.stream()
+                .filter(o -> o.getAssignedEmail() != null && !o.getAssignedEmail().isBlank())
+                .forEach(this::sendDueSoonAlert);
+            repository.markAlertsSent(
+                dueSoon.stream().map(ComplianceObligation::getId).collect(Collectors.toList()));
+        }
+        logger.info("Scheduled check done — overdue={} dueSoon={}", overdue.size(), dueSoon.size());
+    }
+
+    // ── Manual trigger — called from the "Send Alerts" button ────────────────
+
+    /**
+     * Sends alert emails only to OVERDUE and DUE-SOON obligations.
+     * - Overdue  = dueDate is in the past and status != COMPLETED
+     * - Due soon = dueDate is within the next 7 days and status != COMPLETED
+     *
+     * The manual button ignores the alertSent flag so it always sends
+     * when clicked. The alertSent flag is only used by the automatic
+     * daily scheduler to avoid duplicate emails.
+     *
+     * Emails go to o.getAssignedEmail() — NOT to the .env sender account.
+     */
+    @Transactional
+    public Map<String, Object> sendAlerts() {
+        LocalDate today       = LocalDate.now();
+        LocalDate dueSoonDate = today.plusDays(7);
+
+        // Use queries that ignore alertSent — manual button always sends
+        List<ComplianceObligation> overdue = repository.findAll().stream()
+                .filter(o -> o.getDueDate() != null
+                        && o.getDueDate().isBefore(today)
+                        && !"COMPLETED".equals(o.getStatus())
+                        && !"CANCELLED".equals(o.getStatus()))
+                .collect(Collectors.toList());
+
+        List<ComplianceObligation> dueSoon = repository.findAll().stream()
+                .filter(o -> o.getDueDate() != null
+                        && !o.getDueDate().isBefore(today)
+                        && !o.getDueDate().isAfter(dueSoonDate)
+                        && !"COMPLETED".equals(o.getStatus())
+                        && !"CANCELLED".equals(o.getStatus()))
+                .collect(Collectors.toList());
+
+        int sentOverdue = 0, sentDueSoon = 0, skipped = 0;
+
+        for (ComplianceObligation o : overdue) {
+            if (o.getAssignedEmail() == null || o.getAssignedEmail().isBlank()) {
+                skipped++;
+                continue;
             }
-            repository.markAlertsSent(ids);
-            logger.info("Due-soon alerts sent: {}", sentDueSoon);
+            sendObligationAlert(o);
+            sentOverdue++;
         }
 
-        return Map.of("overdue", sentOverdue, "dueSoon", sentDueSoon, "skipped", skipped);
+        for (ComplianceObligation o : dueSoon) {
+            if (o.getAssignedEmail() == null || o.getAssignedEmail().isBlank()) {
+                skipped++;
+                continue;
+            }
+            sendObligationAlert(o);
+            sentDueSoon++;
+        }
+
+        int total = sentOverdue + sentDueSoon;
+        String message = total == 0
+                ? "No overdue or due-soon obligations found — no alerts sent."
+                : String.format("Alerts sent: %d overdue, %d due-soon.%s",
+                        sentOverdue, sentDueSoon,
+                        skipped > 0 ? " " + skipped + " skipped (no email assigned)." : "");
+
+        logger.info("Manual alert — overdue={} dueSoon={} skipped={}", sentOverdue, sentDueSoon, skipped);
+        return Map.of("overdue", sentOverdue, "dueSoon", sentDueSoon,
+                      "skipped", skipped, "total", total, "message", message);
     }
 
     // ── Weekly summary ────────────────────────────────────────────────────────
@@ -121,29 +146,74 @@ public class AlertScheduler {
         logger.info("Weekly summary sent with {} pending obligations", totalPending);
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    // ── Email helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Sends a status-aware alert to o.getAssignedEmail().
+     * Subject and body vary based on whether the obligation is overdue,
+     * due soon, or just a general reminder.
+     */
+    private void sendObligationAlert(ComplianceObligation o) {
+        LocalDate today = LocalDate.now();
+        LocalDate due   = o.getDueDate();
+
+        String subject;
+        String body;
+
+        if (due != null && due.isBefore(today)) {
+            // Overdue
+            subject = "⚠ OVERDUE: " + o.getTitle();
+            body = String.format(
+                    "Compliance Obligation Alert — OVERDUE%n%n" +
+                    "Title:        %s%n" +
+                    "Category:     %s%n" +
+                    "Due Date:     %s%n" +
+                    "Status:       %s%n" +
+                    "Assigned To:  %s%n%n" +
+                    "This obligation is past its due date. Please take immediate action.",
+                    o.getTitle(), o.getCategory(), o.getDueDate(),
+                    o.getStatus(), o.getAssignedEmail());
+
+        } else if (due != null && !due.isAfter(today.plusDays(7))) {
+            // Due within 7 days
+            subject = "🔔 Due Soon: " + o.getTitle();
+            body = String.format(
+                    "Compliance Obligation Reminder — DUE SOON%n%n" +
+                    "Title:        %s%n" +
+                    "Category:     %s%n" +
+                    "Due Date:     %s%n" +
+                    "Status:       %s%n" +
+                    "Assigned To:  %s%n%n" +
+                    "This obligation is due within 7 days. Please prepare accordingly.",
+                    o.getTitle(), o.getCategory(), o.getDueDate(),
+                    o.getStatus(), o.getAssignedEmail());
+
+        } else {
+            // General reminder
+            subject = "📋 Compliance Reminder: " + o.getTitle();
+            body = String.format(
+                    "Compliance Obligation Reminder%n%n" +
+                    "Title:        %s%n" +
+                    "Category:     %s%n" +
+                    "Due Date:     %s%n" +
+                    "Status:       %s%n" +
+                    "Assigned To:  %s%n%n" +
+                    "Please review and ensure this obligation is completed on time.",
+                    o.getTitle(), o.getCategory(), o.getDueDate(),
+                    o.getStatus(), o.getAssignedEmail());
+        }
+
+        // Send to the obligation's assigned email — NOT to the .env sender account
+        emailService.sendEmail(o.getAssignedEmail(), subject, body);
+        logger.info("Alert sent to {} for obligation '{}' (id={})",
+                o.getAssignedEmail(), o.getTitle(), o.getId());
+    }
 
     private void sendOverdueAlert(ComplianceObligation o) {
-        String body = String.format(
-                "OVERDUE — Compliance Obligation Alert%n%n" +
-                "Title:    %s%n" +
-                "Due Date: %s%n" +
-                "Status:   %s%n%n" +
-                "This obligation is past its due date. Please take immediate action.",
-                o.getTitle(), o.getDueDate(), o.getStatus());
-        emailService.sendEmail(o.getAssignedEmail(), "⚠ Overdue: " + o.getTitle(), body);
-        logger.info("Overdue alert sent for obligation {}", o.getId());
+        sendObligationAlert(o);
     }
 
     private void sendDueSoonAlert(ComplianceObligation o) {
-        String body = String.format(
-                "UPCOMING — Compliance Obligation Reminder%n%n" +
-                "Title:    %s%n" +
-                "Due Date: %s%n" +
-                "Status:   %s%n%n" +
-                "This obligation is due within 7 days. Please prepare accordingly.",
-                o.getTitle(), o.getDueDate(), o.getStatus());
-        emailService.sendEmail(o.getAssignedEmail(), "🔔 Due Soon: " + o.getTitle(), body);
-        logger.info("Due-soon alert sent for obligation {}", o.getId());
+        sendObligationAlert(o);
     }
 }

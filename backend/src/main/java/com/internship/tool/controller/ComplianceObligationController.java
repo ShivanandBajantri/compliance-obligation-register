@@ -148,25 +148,8 @@ public class ComplianceObligationController {
     @PostMapping("/send-alerts")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<Map<String, Object>> sendAlerts() {
-        Map<String, Integer> result = alertScheduler.sendAlerts();
-        int overdue = result.get("overdue");
-        int dueSoon = result.get("dueSoon");
-        int skipped = result.get("skipped");
-        int total   = overdue + dueSoon;
-
-        String message = total == 0
-                ? "No overdue or due-soon obligations found — no alerts sent."
-                : String.format("Alerts sent: %d overdue, %d due-soon.%s",
-                        overdue, dueSoon,
-                        skipped > 0 ? " " + skipped + " skipped (no email assigned)." : "");
-
-        return ResponseEntity.ok(Map.of(
-                "overdue", overdue,
-                "dueSoon", dueSoon,
-                "skipped", skipped,
-                "total",   total,
-                "message", message
-        ));
+        Map<String, Object> result = alertScheduler.sendAlerts();
+        return ResponseEntity.ok(result);
     }
 
     /**
