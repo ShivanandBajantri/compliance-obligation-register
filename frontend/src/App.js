@@ -95,6 +95,17 @@ function ObligationModal({ obligation, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
 
+  useEffect(() => {
+    setForm(obligation ? {
+      title:         obligation.title         || '',
+      description:   obligation.description   || '',
+      category:      obligation.category      || '',
+      dueDate:       obligation.dueDate       || '',
+      assignedEmail: obligation.assignedEmail || '',
+      status:        obligation.status        || 'PENDING',
+    } : EMPTY_FORM);
+  }, [obligation]);
+
   const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }));
 
   const submit = async (e) => {
@@ -103,7 +114,12 @@ function ObligationModal({ obligation, onSave, onClose }) {
     if (!form.dueDate)        { setError('Due date is required'); return; }
     setSaving(true); setError('');
     try {
-      const body = { ...form, title: form.title.trim() };
+      let body = { ...form, title: form.title.trim() };
+      if (!isEdit) {
+        // Ensure no id is sent for create
+        const { id, ...bodyWithoutId } = body;
+        body = bodyWithoutId;
+      }
       if (isEdit) {
         await apiFetch(`/obligations/${obligation.id}`, { method: 'PUT', body: JSON.stringify(body) });
       } else {
