@@ -88,6 +88,8 @@ public class ComplianceObligationService {
         existing.setStatus(updated.getStatus());
         existing.setDueDate(updated.getDueDate());
         existing.setAssignedEmail(updated.getAssignedEmail());
+        // Reset alertSent when due date or email changes so the alert fires again
+        existing.setAlertSent(false);
         existing.setAlertSent(updated.isAlertSent());
         existing.setUpdatedAt(LocalDateTime.now());
 

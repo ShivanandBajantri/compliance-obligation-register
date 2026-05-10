@@ -66,10 +66,15 @@ public interface ComplianceObligationRepository
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
     List<ComplianceObligation> findOverdueObligations(@Param("today") LocalDate today);
 
+    // Bug fix: was exact date match (= :dueDate) — only caught obligations due
+    // on exactly day+7. Changed to range so all obligations due within 7 days
+    // are included.
     @Query("SELECT o FROM ComplianceObligation o " +
-           "WHERE o.status != 'COMPLETED' AND o.alertSent = false AND o.dueDate = :dueDate")
+           "WHERE o.status != 'COMPLETED' AND o.alertSent = false " +
+           "AND o.dueDate >= :today AND o.dueDate <= :dueSoonDate")
     @QueryHints(@QueryHint(name = "org.hibernate.readOnly", value = "true"))
-    List<ComplianceObligation> findDueSoonObligations(@Param("dueDate") LocalDate dueDate);
+    List<ComplianceObligation> findDueSoonObligations(@Param("today") LocalDate today,
+                                                       @Param("dueSoonDate") LocalDate dueSoonDate);
 
     // -------------------------------------------------------------------------
     // Bulk UPDATE — @Modifying is required for any DML statement.

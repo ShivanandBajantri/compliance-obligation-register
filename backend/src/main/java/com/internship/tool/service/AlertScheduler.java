@@ -58,8 +58,8 @@ public class AlertScheduler {
         LocalDate today       = LocalDate.now();
         LocalDate dueSoonDate = today.plusDays(7);
 
-        List<ComplianceObligation> overdue  = repository.findOverdueObligations(today);
-        List<ComplianceObligation> dueSoon  = repository.findDueSoonObligations(dueSoonDate);
+        List<ComplianceObligation> overdue = repository.findOverdueObligations(today);
+        List<ComplianceObligation> dueSoon = repository.findDueSoonObligations(today, dueSoonDate);
 
         int sentOverdue  = 0;
         int sentDueSoon  = 0;
